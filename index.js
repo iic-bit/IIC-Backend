@@ -9,6 +9,9 @@ const { google } = require('googleapis');
 const XLSX = require('xlsx');
 const fs = require('fs');
 
+// Define the maximum number of participants allowed per group
+const MAX_PARTICIPANTS_PER_GROUP = 5; // You can adjust this number as needed
+
 // Connect to MongoDB
 mongoose.connect('mongodb+srv://amaadhav938:5rc3UFqyzvsqyEqT@cluster0.ovydhlv.mongodb.net/evnts', { useNewUrlParser: true, useUnifiedTopology: true });
 
@@ -83,6 +86,12 @@ app.delete('/delete/:id', async (req, res) => {
     }
 });
 
+// GET route to serve images
+app.get("/file/:filename", (req, res) => {
+    const filePath = path.join(__dirname, "upload", req.params.filename);
+    res.sendFile(filePath);
+});
+
 // Define Participant model
 const Participant = mongoose.model('Participant', {
     name: String,
@@ -90,32 +99,34 @@ const Participant = mongoose.model('Participant', {
     phone: String,
     branch: String,
     year: String,
-    eventId: mongoose.Schema.Types.ObjectId,
-    group: String // Add group field
+    eventId: String,
+    group: String
 });
 
-// Define the maximum number of participants per group
-const MAX_PARTICIPANTS_PER_GROUP = 2;
-
-// POST route to register a group of participants for an event
+// POST route to register participants
 app.post('/events/:id/participants', async (req, res) => {
     try {
         const { participants } = req.body; // Expecting an array of participant objects
         const eventId = req.params.id;
 
+        console.log('Received participants:', participants);
+
         // Validate that participants array length matches the group size
         const event = await Event.findById(eventId);
         if (!event) {
+            console.log('Event not found');
             return res.status(404).send('Event not found.');
         }
 
         if (participants.length !== event.groupSize) {
+            console.log(`Group size mismatch. Expected: ${event.groupSize}, Received: ${participants.length}`);
             return res.status(400).send(`Group size must be ${event.groupSize}.`);
         }
 
         // Validate that each participant object has required fields
         const validParticipants = participants.every(p => p.name && p.email && p.phone && p.branch && p.year);
         if (!validParticipants) {
+            console.log('Participant validation failed');
             return res.status(400).send('Please fill out all participant details.');
         }
 
@@ -124,9 +135,12 @@ app.post('/events/:id/participants', async (req, res) => {
             Participant.countDocuments({ eventId, group: p.group })
         ));
 
+        console.log('Current group counts:', groupCounts);
+
         const totalCount = groupCounts.reduce((a, b) => a + b, 0);
 
         if (totalCount + participants.length > MAX_PARTICIPANTS_PER_GROUP) {
+            console.log('Group is full. Cannot add more participants.');
             return res.status(400).send('Group is full. Cannot add more participants.');
         }
 
@@ -139,44 +153,18 @@ app.post('/events/:id/participants', async (req, res) => {
                 branch: p.branch,
                 year: p.year,
                 eventId,
-                group: p.group
+                group: p.group || '' // Ensure group field is handled correctly
             }).save()
         ));
 
         res.send('Participants registered successfully');
     } catch (error) {
-        res.status(500).json(error);
+        console.error('Error in participant registration:', error);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
-// Export participants to Excel
-app.get('/events/:id/participants/export', async (req, res) => {
-    try {
-        const participants = await Participant.find({ eventId: req.params.id });
-        const worksheetData = [
-            ['Name', 'Email', 'Phone', 'Branch', 'Year'], // Header row
-            ...participants.map(p => [p.name, p.email, p.phone, p.branch, p.year]) // Participant data
-        ];
-
-        const workbook = XLSX.utils.book_new();
-        const worksheet = XLSX.utils.aoa_to_sheet(worksheetData);
-        XLSX.utils.book_append_sheet(workbook, worksheet, 'Participants');
-
-        const filePath = `./participants-${req.params.id}.xlsx`;
-        XLSX.writeFile(workbook, filePath);
-
-        // Send the file to the client
-        res.download(filePath, (err) => {
-            if (err) {
-                console.error('Error downloading file:', err);
-                res.status(500).json(err);
-            }
-            fs.unlinkSync(filePath); // Delete the file after sending
-        });
-    } catch (error) {
-        res.status(500).json(error);
-    }
+// Launch server
+app.listen(port, () => {
+    console.log(`Server running at http://localhost:${port}/`);
 });
-
-// Start the server
-app.listen(port, () => console.log('Server started on port 8000'));
