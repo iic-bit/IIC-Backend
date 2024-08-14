@@ -8,6 +8,7 @@ const cors = require('cors');
 const { google } = require('googleapis');
 const XLSX = require('xlsx');
 const fs = require('fs');
+const csv = require('fast-csv');
 
 // Define the maximum number of participants allowed per group
 const MAX_PARTICIPANTS_PER_GROUP = 5; // You can adjust this number as needed
@@ -164,7 +165,37 @@ app.post('/events/:id/participants', async (req, res) => {
     }
 });
 
-// Launch server
+// New route to download participants as CSV
+app.get('/events/:id/participants/download', async (req, res) => {
+    try {
+      const eventId = req.params.id;
+      const participants = await Participant.find({ eventId });
+  
+      // Set headers to download the file as CSV
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', 'attachment; filename=participants.csv');
+  
+      const csvStream = csv.format({ headers: true });
+      csvStream.pipe(res);
+  
+      participants.forEach(participant => {
+        csvStream.write({
+          Name: participant.name,
+          Email: participant.email,
+          Phone: participant.phone,
+          Branch: participant.branch,
+          Year: participant.year,
+          Group: participant.group
+        });
+      });
+  
+      csvStream.end();
+    } catch (error) {
+      console.error('Error downloading CSV:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+  // Launch server
 app.listen(port, () => {
     console.log(`Server running at http://localhost:${port}/`);
 });
