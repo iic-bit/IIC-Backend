@@ -6,6 +6,8 @@ const mongoose = require('mongoose');
 const multer = require('multer');
 const cors = require('cors');
 const { google } = require('googleapis');
+const XLSX = require('xlsx');
+const fs = require('fs');
 
 // Connect to MongoDB
 mongoose.connect('mongodb+srv://amaadhav938:5rc3UFqyzvsqyEqT@cluster0.ovydhlv.mongodb.net/evnts', { useNewUrlParser: true, useUnifiedTopology: true });
@@ -34,7 +36,8 @@ const Event = mongoose.model('Event', {
     description: String,
     date: Date,
     image: String,
-    rule: String
+    rule: String,
+    groupSize: Number // New field for group size
 });
 
 // POST route to upload an event
@@ -43,8 +46,9 @@ app.post('/upload', upload.single('image'), (req, res) => {
         name: req.body.name,
         description: req.body.description,
         date: req.body.date,
-        image: req.body.image,
-        rule: req.body.rule
+        image: req.file ? req.file.filename : '', // Store the filename from multer
+        rule: req.body.rule,
+        groupSize: parseInt(req.body.groupSize, 10) // Parse groupSize as integer
     });
     event.save().then(() => res.send('Event added successfully')).catch(err => res.status(500).json(err));
 });
@@ -83,67 +87,92 @@ app.delete('/delete/:id', async (req, res) => {
 const Participant = mongoose.model('Participant', {
     name: String,
     email: String,
-    eventId: mongoose.Schema.Types.ObjectId
+    phone: String,
+    branch: String,
+    year: String,
+    eventId: mongoose.Schema.Types.ObjectId,
+    group: String // Add group field
 });
 
-// Google Sheets Integration
-const auth = new google.auth.GoogleAuth({
-    keyFile: 'path-to-your-credentials.json', // Replace with your service account key file path
-    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-});
+// Define the maximum number of participants per group
+const MAX_PARTICIPANTS_PER_GROUP = 2;
 
-const updateGoogleSheet = async (participants, eventId) => {
-    const authClient = await auth.getClient();
-    const sheets = google.sheets({ version: 'v4', auth: authClient });
-    const sheetId = 'your-google-sheet-id'; // Replace with your Google Sheet ID
-
-    const values = [
-        ['Name', 'Email'], // Headers
-        ...participants.map(p => [p.name, p.email]) // Participant data
-    ];
-
-    const request = {
-        spreadsheetId: sheetId,
-        range: `Participants-${eventId}!A1:B${participants.length + 1}`, // Assuming each event has a separate sheet tab
-        valueInputOption: 'USER_ENTERED',
-        resource: { values },
-    };
-
-    try {
-        await sheets.spreadsheets.values.update(request);
-        console.log('Google Sheet updated successfully');
-    } catch (error) {
-        console.error('Error updating Google Sheets:', error);
-    }
-};
-
-// POST route to register a participant for an event
+// POST route to register a group of participants for an event
 app.post('/events/:id/participants', async (req, res) => {
     try {
-        const participant = new Participant({
-            name: req.body.name,
-            email: req.body.email,
-            eventId: req.params.id
-        });
-        await participant.save();
+        const { participants } = req.body; // Expecting an array of participant objects
+        const eventId = req.params.id;
 
-        // Fetch all participants of the event
-        const participants = await Participant.find({ eventId: req.params.id });
+        // Validate that participants array length matches the group size
+        const event = await Event.findById(eventId);
+        if (!event) {
+            return res.status(404).send('Event not found.');
+        }
 
-        // Update Google Sheet with the participants
-        // await updateGoogleSheet(participants, req.params.id);
+        if (participants.length !== event.groupSize) {
+            return res.status(400).send(`Group size must be ${event.groupSize}.`);
+        }
 
-        res.send('Participant registered successfully');
+        // Validate that each participant object has required fields
+        const validParticipants = participants.every(p => p.name && p.email && p.phone && p.branch && p.year);
+        if (!validParticipants) {
+            return res.status(400).send('Please fill out all participant details.');
+        }
+
+        // Check if the group is valid and not exceeding the limit
+        const groupCounts = await Promise.all(participants.map(p =>
+            Participant.countDocuments({ eventId, group: p.group })
+        ));
+
+        const totalCount = groupCounts.reduce((a, b) => a + b, 0);
+
+        if (totalCount + participants.length > MAX_PARTICIPANTS_PER_GROUP) {
+            return res.status(400).send('Group is full. Cannot add more participants.');
+        }
+
+        // Register all participants
+        await Promise.all(participants.map(p =>
+            new Participant({
+                name: p.name,
+                email: p.email,
+                phone: p.phone,
+                branch: p.branch,
+                year: p.year,
+                eventId,
+                group: p.group
+            }).save()
+        ));
+
+        res.send('Participants registered successfully');
     } catch (error) {
         res.status(500).json(error);
     }
 });
 
-// GET route to retrieve participants for a specific event
-app.get('/events/:id/participants', async (req, res) => {
+// Export participants to Excel
+app.get('/events/:id/participants/export', async (req, res) => {
     try {
         const participants = await Participant.find({ eventId: req.params.id });
-        res.json(participants);
+        const worksheetData = [
+            ['Name', 'Email', 'Phone', 'Branch', 'Year'], // Header row
+            ...participants.map(p => [p.name, p.email, p.phone, p.branch, p.year]) // Participant data
+        ];
+
+        const workbook = XLSX.utils.book_new();
+        const worksheet = XLSX.utils.aoa_to_sheet(worksheetData);
+        XLSX.utils.book_append_sheet(workbook, worksheet, 'Participants');
+
+        const filePath = `./participants-${req.params.id}.xlsx`;
+        XLSX.writeFile(workbook, filePath);
+
+        // Send the file to the client
+        res.download(filePath, (err) => {
+            if (err) {
+                console.error('Error downloading file:', err);
+                res.status(500).json(err);
+            }
+            fs.unlinkSync(filePath); // Delete the file after sending
+        });
     } catch (error) {
         res.status(500).json(error);
     }
