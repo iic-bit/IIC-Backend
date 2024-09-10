@@ -28,6 +28,7 @@ app.use(cors());
 const Event = mongoose.model('Event', {
     name: String,
     description: String,
+    fee:String,
     date: Date,
     image: String,
     rule: String,
@@ -51,9 +52,10 @@ app.post('/upload', upload.single('image'), (req, res) => {
     const event = new Event({
         name: req.body.name,
         description: req.body.description,
+        fee: req.body.fee,
         date: req.body.date,
         image: req.file ? req.file.filename : '', // Store the filename from multer
-        rule: req.body.rule,
+        rule: req.body.rule, // Store the filename from multer,
         groupSize: parseInt(req.body.groupSize, 10) // Parse groupSize as integer
     });
     event.save().then(() => res.send('Event added successfully')).catch(err => res.status(500).json(err));
@@ -130,10 +132,14 @@ app.post('/events/:id/participants', async (req, res) => {
     }
   });
   // New route to download participants as CSV
-app.get('/events/:id/participants/download', async (req, res) => {
+  app.get('/events/:id/participants/download', async (req, res) => {
     try {
         const eventId = req.params.id;
         const participants = await Participant.find({ eventId });
+
+        if (!participants.length) {
+            return res.status(404).json({ error: 'No participants found for this event' });
+        }
 
         res.setHeader('Content-Type', 'text/csv');
         res.setHeader('Content-Disposition', 'attachment; filename=participants.csv');
@@ -157,6 +163,7 @@ app.get('/events/:id/participants/download', async (req, res) => {
         res.status(500).json({ error: 'Internal server error' });
     }
 });
+
 app.get('/events/:id/participants', async (req, res) => {
     try {
       const eventId = req.params.id;
@@ -244,9 +251,9 @@ app.post('/register', async (req, res) => {
         const newUser = new User({ name, email, password: hashedPassword, phone, branch, year });
         await newUser.save();
 
-        const token = jwt.sign({ id: newUser._id, email: newUser.email }, JWT_SECRET, { expiresIn: '1h' });
+        const token = jwt.sign({ id: newUser._id, email: newUser.email,isAdmin: newUser.isAdmin }, JWT_SECRET, { expiresIn: '1h' });
 
-        res.status(201).json({ message: 'User registered successfully', token });
+        res.status(201).json({ message: 'User registered successfully', token ,isAdmin: newUser.isAdmin });
     } catch (error) {
         res.status(500).json({ error: 'Internal server error' });
     }
@@ -267,9 +274,9 @@ app.post('/login', async (req, res) => {
             return res.status(401).json({ message: 'Invalid email or password' });
         }
 
-        const token = jwt.sign({ id: user._id, email: user.email }, JWT_SECRET, { expiresIn: '1h' });
+        const token = jwt.sign({ id: user._id, email: user.email, isAdmin: user.isAdmin }, JWT_SECRET, { expiresIn: '1h' });
 
-        res.status(200).json({ message: 'Login successful', token });
+        res.status(200).json({ message: 'Login successful', token, isAdmin: user.isAdmin });
     } catch (error) {
         res.status(500).json({ error: 'Internal server error' });
     }
