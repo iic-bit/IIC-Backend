@@ -110,26 +110,31 @@ const Participant = mongoose.model('Participant', {
 
 // POST route to register participants
 app.post('/events/:id/participants', async (req, res) => {
-    const  participat = new Participant({
-        name:req.body.name,
-        email:req.body.email,
-        phone:req.body.phone,
-        branch:req.body.branch,
-        year:req.body.year,
-        eventId:req.params.id,
-        group:req.body.group
-});
-    
+    console.log(req.body.participants)
+    var participat;
+    var savedParticipants;
+    req.body.participants.map(async(val)=>{
+        console.log(val.name)
+        participat = new Participant({
+            name:val.name,
+            email:val.email,
+            phone:val.phone,
+            branch:val.branch,
+            year:val.year,
+            eventId:req.params.id,
+            group:val.group
+        })
+        savedParticipants = await Participant.insertMany(participat);
+    })
     try {
       // Assuming you have a model and DB setup to save participants
       // Save all participants in bulk
-      const savedParticipants = await Participant.insertMany(participat);
-  
       res.status(200).json({ message: "Participants registered successfully", data: savedParticipants });
     } catch (error) {
       console.error("Error registering participants:", error);
       res.status(500).json({ message: "Error registering participants" });
     }
+    
   });
   // New route to download participants as CSV
   app.get('/events/:id/participants/download', async (req, res) => {
@@ -168,6 +173,7 @@ app.get('/events/:id/participants', async (req, res) => {
     try {
       const eventId = req.params.id;
       const participants = await Participant.find({ eventId }); // Assuming Participant is your model
+      console.log(participants)
       res.json(participants);
     } catch (error) {
       console.error("Error fetching participants:", error);
@@ -215,6 +221,7 @@ app.post('/idea', upload.single('pptUpload'), async (req, res) => {
         res.status(500).json({ error: 'Internal server error' });
     }
 });
+
 app.get('/idea', async (req, res) => {
     try {
         const ideas = await Idea.find();
