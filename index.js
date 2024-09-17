@@ -6,7 +6,7 @@ const cors = require('cors');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const csv = require('fast-csv'); // Ensure fast-csv is imported
-
+// const { v4: uuidv4 } = require('uuid');
 const app = express();
 const port = 8000;
 
@@ -28,12 +28,17 @@ app.use(cors());
 const Event = mongoose.model('Event', {
     name: String,
     description: String,
-    fee:String,
+    fee: String,
     date: Date,
     image: String,
     rule: String,
     groupSize: Number // New field for group size
 });
+
+// Helper function to generate a unique group ID
+const generateUniqueId = () => {
+    return 'G' + Math.random().toString(36).substr(2, 9).toUpperCase();
+};
 
 // Set up storage for Multer to handle file uploads
 const storage = multer.diskStorage({
@@ -55,7 +60,7 @@ app.post('/upload', upload.single('image'), (req, res) => {
         fee: req.body.fee,
         date: req.body.date,
         image: req.file ? req.file.filename : '', // Store the filename from multer
-        rule: req.body.rule, // Store the filename from multer,
+        rule: req.body.rule,
         groupSize: parseInt(req.body.groupSize, 10) // Parse groupSize as integer
     });
     event.save().then(() => res.send('Event added successfully')).catch(err => res.status(500).json(err));
@@ -105,39 +110,42 @@ const Participant = mongoose.model('Participant', {
     branch: String,
     year: String,
     eventId: String,
-    group: String
+    group: String,
+    groupId: String // Unique ID for the group
 });
 
 // POST route to register participants
+const { v4: uuidv4 } = require('uuid'); // Install uuid package if not already installed
+
 app.post('/events/:id/participants', async (req, res) => {
-    console.log(req.body.participants)
-    var participat;
-    var savedParticipants;
-    req.body.participants.map(async(val)=>{
-        console.log(val.name)
-        participat = new Participant({
-            name:val.name,
-            email:val.email,
-            phone:val.phone,
-            branch:val.branch,
-            year:val.year,
-            eventId:req.params.id,
-            group:val.group
-        })
-        savedParticipants = await Participant.insertMany(participat);
-    })
-    try {
-      // Assuming you have a model and DB setup to save participants
-      // Save all participants in bulk
-      res.status(200).json({ message: "Participants registered successfully", data: savedParticipants });
-    } catch (error) {
-      console.error("Error registering participants:", error);
-      res.status(500).json({ message: "Error registering participants" });
+    const { participants } = req.body;
+
+    if (!Array.isArray(participants) || participants.length === 0) {
+        return res.status(400).json({ message: 'Invalid participants data' });
     }
-    
-  });
-  // New route to download participants as CSV
-  app.get('/events/:id/participants/download', async (req, res) => {
+
+    try {
+        // Generate a unique group ID for all participants in this request
+        const groupId = generateUniqueId();
+
+        // Add the groupId to each participant
+        const participantsWithGroupId = participants.map(participant => ({
+            ...participant,
+            groupId: groupId, // Assign the same groupId to all participants
+            eventId: req.params.id
+        }));
+
+        // Save all participants in bulk
+        const savedParticipants = await Participant.insertMany(participantsWithGroupId);
+
+        res.status(200).json({ message: "Participants registered successfully", data: savedParticipants });
+    } catch (error) {
+        console.error("Error registering participants:", error);
+        res.status(500).json({ message: "Error registering participants" });
+    }
+});
+// New route to download participants as CSV
+app.get('/events/:id/participants/download', async (req, res) => {
     try {
         const eventId = req.params.id;
         const participants = await Participant.find({ eventId });
@@ -152,15 +160,46 @@ app.post('/events/:id/participants', async (req, res) => {
         const csvStream = csv.format({ headers: true });
         csvStream.pipe(res);
 
-        participants.forEach(participant => {
+        // Group participants by groupId
+        const groupedParticipants = participants.reduce((acc, participant) => {
+            if (!acc[participant.groupId]) {
+                acc[participant.groupId] = { members: [], count: 0 };
+            }
+            acc[participant.groupId].members.push(participant);
+            acc[participant.groupId].count += 1;
+            return acc;
+        }, {});
+
+        // Write CSV rows
+        Object.entries(groupedParticipants).forEach(([groupId, { members, count }]) => {
+            // Write group info
             csvStream.write({
-                Name: participant.name,
-                Email: participant.email,
-                Phone: participant.phone,
-                Branch: participant.branch,
-                Year: participant.year,
-                Group: participant.group
+                GroupId: groupId,
+                MembersCount: count,
+                GroupName: '', // Adjust if needed
+                Name: '',
+                Email: '',
+                Phone: '',
+                Branch: '',
+                Year: ''
             });
+
+            // Write participant info
+            members.forEach(participant => {
+                csvStream.write({
+                    Group_Name:participant.group,
+                    Name: participant.name,
+                    Email: participant.email,
+                    Phone: participant.phone,
+                    Branch: participant.branch,
+                    Year: participant.year,
+                    GroupId: participant.groupId,
+                    MembersCount: '' // Leave blank or adjust if needed
+                });
+            });
+
+            // Add an empty line after each group
+            csvStream.write({});
         });
 
         csvStream.end();
@@ -171,16 +210,15 @@ app.post('/events/:id/participants', async (req, res) => {
 
 app.get('/events/:id/participants', async (req, res) => {
     try {
-      const eventId = req.params.id;
-      const participants = await Participant.find({ eventId }); // Assuming Participant is your model
-      console.log(participants)
-      res.json(participants);
+        const eventId = req.params.id;
+        const participants = await Participant.find({ eventId }); // Assuming Participant is your model
+        res.json(participants);
     } catch (error) {
-      console.error("Error fetching participants:", error);
-      res.status(500).json({ error: 'Internal server error' });
+        console.error("Error fetching participants:", error);
+        res.status(500).json({ error: 'Internal server error' });
     }
-  });
-  
+});
+
 // Define the Idea model
 const Idea = mongoose.model('Idea', {
     ideaname: String,
@@ -227,9 +265,9 @@ app.get('/idea', async (req, res) => {
         const ideas = await Idea.find();
         res.json(ideas);
     } catch (error) {
-        res.status(500).json({ error: 'Internal server error' })
-        }
-})
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
 
 // Define User model
 const userSchema = new mongoose.Schema({
@@ -258,9 +296,9 @@ app.post('/register', async (req, res) => {
         const newUser = new User({ name, email, password: hashedPassword, phone, branch, year });
         await newUser.save();
 
-        const token = jwt.sign({ id: newUser._id, email: newUser.email,isAdmin: newUser.isAdmin }, JWT_SECRET, { expiresIn: '1h' });
+        const token = jwt.sign({ id: newUser._id, email: newUser.email, isAdmin: newUser.isAdmin }, JWT_SECRET, { expiresIn: '1h' });
 
-        res.status(201).json({ message: 'User registered successfully', token ,isAdmin: newUser.isAdmin });
+        res.status(201).json({ message: 'User registered successfully', token, isAdmin: newUser.isAdmin });
     } catch (error) {
         res.status(500).json({ error: 'Internal server error' });
     }
