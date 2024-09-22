@@ -6,12 +6,27 @@ const cors = require('cors');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const csv = require('fast-csv'); // Ensure fast-csv is imported
-// const { v4: uuidv4 } = require('uuid');
+const admin = require('firebase-admin');
+const dotenv=require('dotenv');
+dotenv.config()
+const serviceAccount = JSON.parse(process.env.ADMIN); // Replace with your service account key file
+
+serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
+
 const app = express();
-const port = 8000;
+
+const port =process.env.PORT ;
 
 // JWT secret key
 const JWT_SECRET = '6a5b40e021dbe2d3725296ec265434410332ca421bfc1a3f288645357f7311c5'; 
+
+// Initialize Firebase Admin SDK
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+  storageBucket: 'iic-d9d44.appspot.com' // Replace with your Firebase Storage bucket
+});
+
+const bucket = admin.storage().bucket();
 
 // Connect to MongoDB
 mongoose.connect('mongodb+srv://amaadhav938:5rc3UFqyzvsqyEqT@cluster0.ovydhlv.mongodb.net/evnts', {
@@ -41,29 +56,49 @@ const generateUniqueId = () => {
 };
 
 // Set up storage for Multer to handle file uploads
-const storage = multer.diskStorage({
-    destination: function (req, file, cb) {
-        cb(null, "./upload");
-    },
-    filename: function (req, file, cb) {
-        cb(null, file.fieldname + "-" + Date.now() + path.extname(file.originalname));
-    }
-});
-
+const storage = multer.memoryStorage(); // Use memoryStorage to upload files to Firebase
 const upload = multer({ storage: storage });
 
 // POST route to upload an event
-app.post('/upload', upload.single('image'), (req, res) => {
-    const event = new Event({
-        name: req.body.name,
-        description: req.body.description,
-        fee: req.body.fee,
-        date: req.body.date,
-        image: req.file ? req.file.filename : '', // Store the filename from multer
-        rule: req.body.rule,
-        groupSize: parseInt(req.body.groupSize, 10) // Parse groupSize as integer
-    });
-    event.save().then(() => res.send('Event added successfully')).catch(err => res.status(500).json(err));
+app.post('/upload', upload.single('image'), async (req, res) => {
+    try {
+        const file = req.file;
+        const blob = bucket.file(file.originalname);
+        const blobStream = blob.createWriteStream({
+            metadata: {
+                contentType: file.mimetype
+            }
+        });
+
+        blobStream.on('error', (error) => {
+            console.error('Error uploading file to Firebase Storage:', error);
+            res.status(500).json({ error: 'Error uploading file' });
+        });
+
+        blobStream.on('finish', async () => {
+            const publicUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(file.originalname)}?alt=media`;
+            const event = new Event({
+                name: req.body.name,
+                description: req.body.description,
+                fee: req.body.fee,
+                date: req.body.date,
+                image: publicUrl, // Store the public URL from Firebase Storage
+                rule: req.body.rule,
+                groupSize: parseInt(req.body.groupSize, 10) // Parse groupSize as integer
+            });
+
+            try {
+                await event.save();
+                res.send('Event added successfully');
+            } catch (err) {
+                res.status(500).json(err);
+            }
+        });
+
+        blobStream.end(file.buffer); // Upload the file buffer to Firebase Storage
+    } catch (error) {
+        res.status(500).json({ error: 'Internal server error' });
+    }
 });
 
 // GET route to retrieve all events
@@ -96,10 +131,20 @@ app.delete('/delete/:id', async (req, res) => {
     }
 });
 
-// GET route to serve images
-app.get("/file/:filename", (req, res) => {
-    const filePath = path.join(__dirname, "upload", req.params.filename);
-    res.sendFile(filePath);
+// GET route to serve images from Firebase Storage
+app.get('/file/:filename', async (req, res) => {
+    try {
+        const file = bucket.file(req.params.filename);
+        const [exists] = await file.exists();
+        if (!exists) {
+            return res.status(404).json({ error: 'File not found' });
+        }
+
+        const publicUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(req.params.filename)}?alt=media`;
+        res.redirect(publicUrl); // Redirect to the Firebase Storage public URL
+    } catch (error) {
+        res.status(500).json({ error: 'Internal server error' });
+    }
 });
 
 // Define Participant model
@@ -115,8 +160,6 @@ const Participant = mongoose.model('Participant', {
 });
 
 // POST route to register participants
-const { v4: uuidv4 } = require('uuid'); // Install uuid package if not already installed
-
 app.post('/events/:id/participants', async (req, res) => {
     const { participants } = req.body;
 
@@ -144,6 +187,7 @@ app.post('/events/:id/participants', async (req, res) => {
         res.status(500).json({ message: "Error registering participants" });
     }
 });
+
 // New route to download participants as CSV
 app.get('/events/:id/participants/download', async (req, res) => {
     try {
@@ -187,7 +231,7 @@ app.get('/events/:id/participants/download', async (req, res) => {
             // Write participant info
             members.forEach(participant => {
                 csvStream.write({
-                    Group_Name:participant.group,
+                    Group_Name: participant.group,
                     Name: participant.name,
                     Email: participant.email,
                     Phone: participant.phone,
@@ -249,7 +293,7 @@ app.post('/idea', upload.single('pptUpload'), async (req, res) => {
             idea: req.body.idea,
             description: req.body.description, // Added description
             proto: req.body.proto,
-            pptUpload: req.file ? req.file.filename : '', // Save the uploaded file's filename
+            pptUpload: req.file ? req.file.originalname : '', // Save the uploaded file's filename
         };
 
         const idea = new Idea(ideaData);
