@@ -163,7 +163,7 @@ const Participant = mongoose.model('Participant', {
 // POST route to register participants
 app.post('/events/:id/participants', async (req, res) => {
     const { participants } = req.body;
-    console.log(req.body)
+    // console.log(req.body)
 
     if (!Array.isArray(participants) || participants.length === 0) {
         return res.status(400).json({ message: 'Invalid participants data' });
