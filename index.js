@@ -8,6 +8,7 @@ const jwt = require('jsonwebtoken');
 const csv = require('fast-csv'); // Ensure fast-csv is imported
 const admin = require('firebase-admin');
 const dotenv=require('dotenv');
+const axios=require("axios")
 dotenv.config()
 const serviceAccount = JSON.parse(process.env.ADMIN); // Replace with your service account key file
 
@@ -392,7 +393,21 @@ app.get('/protected', authenticateToken, (req, res) => {
     res.json({ message: 'You are accessing a protected route!' });
 });
 
+app.get('/empty', (req, res) => {
+    res.sendStatus(200);
+});
+
+
 // Start the server
 app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
 });
+
+setInterval(()=>{
+    try {
+        const res=axios.get("http://localhost:8000/empty")
+    } catch (error) {
+        console.log(error)
+    }
+},600000)
+
