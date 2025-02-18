@@ -405,7 +405,7 @@ app.listen(port, () => {
 
 setInterval(()=>{
     try {
-        const res=axios.get("http://localhost:8000/empty")
+        const res=axios.get("https://iic-backend-lcp6.onrender.com/empty")
     } catch (error) {
         console.log(error)
     }
