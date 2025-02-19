@@ -158,7 +158,8 @@ const Participant = mongoose.model('Participant', {
     year: String,
     eventId: String,
     group: String,
-    groupId: String // Unique ID for the group
+    groupId: String,
+  trancationId:String// Unique ID for the group
 });
 
 // POST route to register participants
