@@ -568,6 +568,7 @@ const Participant = mongoose.model('Participant', {
     email: String,
     phone: String,
     college: String,
+    course:String,
     branch: String,
     year: String,
     eventId: String,
