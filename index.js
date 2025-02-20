@@ -153,13 +153,16 @@ const Participant = mongoose.model('Participant', {
     name: String,
     email: String,
     phone: String,
-    college:String,
+    college: String,
     branch: String,
     year: String,
     eventId: String,
     group: String,
-    groupId: String // Unique ID for the group
+    transactionId: String,
+    groupId: String, 
+    paymentImage: String  // New field for storing payment image URL
 });
+
 
 // POST route to register participants
 app.post('/events/:id/participants', async (req, res) => {
@@ -178,8 +181,8 @@ app.post('/events/:id/participants', async (req, res) => {
         const participantsWithGroupId = participants.map(participant => ({
             ...participant,
             groupId: groupId, // Assign the same groupId to all participants
-            eventId: req.params.id
-        }));
+            eventId: req.params.id,
+        }))
 
         // Save all participants in bulk
         const savedParticipants = await Participant.insertMany(participantsWithGroupId);
@@ -228,7 +231,8 @@ app.get('/events/:id/participants/download', async (req, res) => {
                 Email: '',
                 Phone: '',
                 Branch: '',
-                Year: ''
+                Year: '',
+                trancationId:''
             });
 
             // Write participant info
@@ -241,7 +245,8 @@ app.get('/events/:id/participants/download', async (req, res) => {
                     Branch: participant.branch,
                     Year: participant.year,
                     GroupId: participant.groupId,
-                    MembersCount: '' // Leave blank or adjust if needed
+                    MembersCount: '' ,// Leave blank or adjust if needed
+                    trancationId:participant.trancationId
                 });
             });
 
