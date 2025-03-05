@@ -641,13 +641,15 @@ app.get('/events/:id/participants/download', async (req, res) => {
             csvStream.write({
                 GroupId: groupId,
                 MembersCount: count,
-                GroupName: '', // Adjust if needed
+                Group_Name: '', // Adjust if needed
                 Name: '',
                 Email: '',
                 Phone: '',
+                College_Name:'',
+                Course:'',
                 Branch: '',
                 Year: '',
-                trancationId:''
+                transactionId:''
             });
 
             // Write participant info
@@ -657,11 +659,13 @@ app.get('/events/:id/participants/download', async (req, res) => {
                     Name: participant.name,
                     Email: participant.email,
                     Phone: participant.phone,
+                    College_Name:participant.college,
+                    Course:participant.course,
                     Branch: participant.branch,
                     Year: participant.year,
                     GroupId: participant.groupId,
                     MembersCount: '' ,// Leave blank or adjust if needed
-                    trancationId:participant.trancationId
+                    transactionId:participant.transactionId
                 });
             });
 
