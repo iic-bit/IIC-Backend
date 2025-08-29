@@ -35,8 +35,6 @@ mongoose.connect(process.env.MONGODB, {
     useUnifiedTopology: true
 });
 
-console.log("->",process.env.JWT_SECRET)
-
 // Middleware to handle JSON and form-data requests
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -423,4 +421,5 @@ app.listen(port, () => {
 //         console.log(error)
 //     }
 // },600000)
+
 
