@@ -10,7 +10,7 @@ const admin = require('firebase-admin');
 const dotenv=require('dotenv');
 const axios=require("axios")
 dotenv.config()
-const serviceAccount = JSON.parse(process.env.ADMIN);
+const serviceAccount = JSON.parse(process.env.FIREBASE);
 
 serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
 
@@ -19,21 +19,23 @@ const app = express();
 const port =process.env.PORT ;
 
 // JWT secret key
-const JWT_SECRET = '6a5b40e021dbe2d3725296ec265434410332ca421bfc1a3f288645357f7311c5'; 
+const JWT_SECRET = process.env.JWT_SECRET; 
 
 // Initialize Firebase Admin SDK
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
-  storageBucket: 'iic-d9d44.appspot.com' // Replace with your Firebase Storage bucket
+  storageBucket: 'iic-d9d44.appspot.com'
 });
 
 const bucket = admin.storage().bucket();
 
 // Connect to MongoDB
-mongoose.connect('mongodb+srv://amaadhav938:5rc3UFqyzvsqyEqT@cluster0.ovydhlv.mongodb.net/evnts', {
+mongoose.connect(process.env.MONGODB, {
     useNewUrlParser: true,
     useUnifiedTopology: true
 });
+
+console.log("->",process.env.JWT_SECRET)
 
 // Middleware to handle JSON and form-data requests
 app.use(express.json());
