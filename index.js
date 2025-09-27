@@ -414,12 +414,12 @@ app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
 });
 
-// setInterval(()=>{
-//     try {
-//         const res=axios.get("https://iic-backend-lcp6.onrender.com/empty")
-//     } catch (error) {
-//         console.log(error)
-//     }
-// },600000)
+setInterval(()=>{
+    try {
+        const res=axios.get("https://iic-backend-5opn.onrender.com/empty")
+    } catch (error) {
+        console.log(error)
+    }
+},840000)
 
 
