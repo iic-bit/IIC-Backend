@@ -65,6 +65,32 @@ const Event = mongoose.model('Event', {
     groupSize: Number // New field for group size
 });
 
+// Define Participant model
+const Participant = mongoose.model('Participant', {
+    name: String,
+    email: String,
+    phone: String,
+    college: String,
+    course:String,
+    branch: String,
+    year: String,
+    eventId: String,
+    group: String,
+    transactionId: String,
+    groupId: String, 
+    paymentImage: String  // New field for storing payment image URL
+});
+
+const SiteData = mongoose.model('SiteData', {
+    notice: String,
+    image:String
+});
+
+const Notices = mongoose.model('Notices', {
+    note: String,
+    color:String
+});
+
 // Helper function to generate a unique group ID
 const generateUniqueId = () => {
     return 'G' + Math.random().toString(36).substr(2, 9).toUpperCase();
@@ -73,6 +99,83 @@ const generateUniqueId = () => {
 // Set up storage for Multer to handle file uploads
 const storage = multer.memoryStorage(); // Use memoryStorage to upload files to Firebase
 const upload = multer({ storage: storage });
+
+// POST route to upload content on Home
+app.post('/uploadsitedata', upload.single('image'), async (req, res) => {
+  try {
+    const file = req.file;
+
+    // convert buffer to stream
+    const bufferStream = new stream.PassThrough();
+    bufferStream.end(file.buffer);
+
+    // upload to drive
+    const response = await drive.files.create({
+      requestBody: {
+        name: file.originalname,
+        mimeType: file.mimetype,
+      },
+      media: {
+        mimeType: file.mimetype,
+        body: bufferStream,
+      },
+    });
+    const fileId = response.data.id;
+
+    // make public
+    await drive.permissions.create({
+      fileId,
+      requestBody: { role: 'reader', type: 'anyone' },
+    });
+
+    const publicUrl = `https://drive.google.com/uc?id=${fileId}`;
+
+    // save event with URL
+    const sitedata = new SiteData({
+      notice:req.body.notice,
+      image:publicUrl
+    });
+
+    await sitedata.save();
+    res.send('Site Data added successfully');
+  } catch (error) {
+    console.error('Error uploading to Google Drive:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST route to upload Notices
+app.post("/notice", async (req, res) => {
+  try {
+    const { note, color } = req.body;
+    // Save to MongoDB here
+    const notices = new Notices({ note, color });
+    await notices.save();
+    res.json({ message: "Notice added successfully" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.get("/notice",async (req, res)=>{
+    try{
+        const notices = await Notices.find();
+        res.json(notices);
+    } catch (error) {
+        console.error(error);
+    }
+})
+
+app.delete("/notice/:id", async (req, res)=>{
+    try{
+        const notice = await Notices.findByIdAndDelete(req.params.id)
+        res.json(notice);
+    } catch (error) {
+        console.error(error);
+    }
+})
+
 
 // POST route to upload an event
 app.post('/upload', upload.single('image'), async (req, res) => {
@@ -186,23 +289,6 @@ app.get('/file/:filename', async (req, res) => {
     } catch (error) {
         res.status(500).json({ error: 'Internal server error' });
     }
-});
-
-
-// Define Participant model
-const Participant = mongoose.model('Participant', {
-    name: String,
-    email: String,
-    phone: String,
-    college: String,
-    course:String,
-    branch: String,
-    year: String,
-    eventId: String,
-    group: String,
-    transactionId: String,
-    groupId: String, 
-    paymentImage: String  // New field for storing payment image URL
 });
 
 
