@@ -9,10 +9,24 @@ const csv = require('fast-csv');
 const admin = require('firebase-admin');
 const dotenv=require('dotenv');
 const axios=require("axios")
+const { google } = require('googleapis');
+const stream = require('stream');
 dotenv.config()
 const serviceAccount = JSON.parse(process.env.FIREBASE);
 
 serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
+
+// setup OAuth client
+const oauth2Client = new google.auth.OAuth2(
+  process.env.CLIENT_ID,
+  process.env.CLIENT_SECRET,
+  process.env.REDIRECT_URI
+);
+
+oauth2Client.setCredentials({ refresh_token: process.env.REFRESH_TOKEN });
+const drive = google.drive({ version: 'v3', auth: oauth2Client });
+
+/////
 
 const app = express();
 
@@ -62,44 +76,61 @@ const upload = multer({ storage: storage });
 
 // POST route to upload an event
 app.post('/upload', upload.single('image'), async (req, res) => {
-    try {
-        const file = req.file;
-        const blob = bucket.file(file.originalname);
-        const blobStream = blob.createWriteStream({
-            metadata: {
-                contentType: file.mimetype
-            }
-        });
+  try {
+    const file = req.file;
 
-        blobStream.on('error', (error) => {
-            console.error('Error uploading file to Firebase Storage:', error);
-            res.status(500).json({ error: 'Error uploading file' });
-        });
+    // convert buffer to stream
+    const bufferStream = new stream.PassThrough();
+    bufferStream.end(file.buffer);
 
-        blobStream.on('finish', async () => {
-            const publicUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(file.originalname)}?alt=media`;
-            const event = new Event({
-                name: req.body.name,
-                description: req.body.description,
-                fee: req.body.fee,
-                date: req.body.date,
-                image: publicUrl, // Store the public URL from Firebase Storage
-                rule: req.body.rule,
-                groupSize: parseInt(req.body.groupSize, 10) // Parse groupSize as integer
-            });
+    // upload to drive
+    const response = await drive.files.create({
+      requestBody: {
+        name: file.originalname,
+        mimeType: file.mimetype,
+      },
+      media: {
+        mimeType: file.mimetype,
+        body: bufferStream,
+      },
+    });
 
-            try {
-                await event.save();
-                res.send('Event added successfully');
-            } catch (err) {
-                res.status(500).json(err);
-            }
-        });
+    const fileId = response.data.id;
 
-        blobStream.end(file.buffer); // Upload the file buffer to Firebase Storage
-    } catch (error) {
-        res.status(500).json({ error: 'Internal server error' });
-    }
+    // make public
+    await drive.permissions.create({
+      fileId,
+      requestBody: { role: 'reader', type: 'anyone' },
+    });
+
+    const publicUrl = `https://drive.google.com/uc?id=${fileId}`;
+
+    // save event with URL
+    const event = new Event({
+      name: req.body.name,
+      description: req.body.description,
+      fee: req.body.fee,
+      date: req.body.date,
+      image: publicUrl,
+      rule: req.body.rule,
+      groupSize: parseInt(req.body.groupSize, 10),
+    });
+
+    await event.save();
+    res.send('Event added successfully');
+  } catch (error) {
+    console.error('Error uploading to Google Drive:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/image/:fileId', async (req, res) => {
+  const { fileId } = req.params;
+  const driveResponse = await drive.files.get(
+    { fileId, alt: 'media' },
+    { responseType: 'stream' }
+  );
+  driveResponse.data.pipe(res);
 });
 
 // GET route to retrieve all events
@@ -126,7 +157,16 @@ app.get('/events/:id', async (req, res) => {
 app.delete('/delete/:id', async (req, res) => {
     try {
         const event = await Event.findByIdAndDelete(req.params.id);
+        const fileId = new URL(event.image).searchParams.get('id');
+
+        console.log(fileId)
+
+    // Delete file from Drive
+    if (fileId) {
+      await drive.files.delete({ fileId });
+    }
         res.json(event);
+
     } catch (error) {
         res.status(500).json(error);
     }
@@ -269,7 +309,7 @@ app.get('/events/:id/participants/download', async (req, res) => {
 app.get('/events/:id/participants', async (req, res) => {
     try {
         const eventId = req.params.id;
-        const participants = await Participant.find({ eventId }); // Assuming Participant is your model
+        const participants = await Participant.find({ eventId });
         res.json(participants);
     } catch (error) {
         console.error("Error fetching participants:", error);
@@ -410,7 +450,7 @@ app.get('/empty', (req, res) => {
 
 
 // Start the server
-app.listen(port, () => {
+app.listen(port,'0.0.0.0', () => {
     console.log(`Server is running on port ${port}`);
 });
 
